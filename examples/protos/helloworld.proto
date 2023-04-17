@@ -25,7 +25,18 @@ package helloworld;
 service Greeter {
   // Sends a greeting
   rpc SayHello (HelloRequest) returns (HelloReply) {}
+  rpc TestRpcFunc (TestRpcReq) returns (TestRpcRsp) {}
 }
+
+message TestRpcReq {
+  int32 val = 1;
+}
+
+message TestRpcRsp {
+  int32 val = 1;
+}
+ 
+  
 
 // The request message containing the user's name.
 message HelloRequest {

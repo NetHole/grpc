@@ -136,6 +136,8 @@ std::string GetHeaderIncludes(grpc_generator::File* file,
                     "");
     }
     static const char* headers_strs[] = {
+        "xrpc/server/rpc_method_handler.h",
+        "xrpc/client/rpc_client_impl.h",
         "functional",
         "grpcpp/generic/async_generic_service.h",
         "grpcpp/support/async_stream.h",
@@ -185,6 +187,25 @@ std::string GetHeaderIncludes(grpc_generator::File* file,
   }
   return output;
 }
+
+//add for xgrpc
+void PrintHeaderClientStubImplMethodInterfaces(grpc_generator::Printer* printer,
+                                       const grpc_generator::Method* method,
+                                       std::map<std::string, std::string>* vars)
+{
+  (*vars)["Method"] = method->name();
+  (*vars)["Request"] = method->input_type_name();
+  (*vars)["Response"] = method->output_type_name();
+
+  printer->Print(
+          *vars,
+          "xlib::common::Future<$Response$> Async$Method$(std::shared_ptr<::grpc::ClientContext> context,const $Request$& request) {\n"
+		  "    auto prepare = [this,context,&request](grpc::CompletionQueue* cq) {\n"
+		  "         return stub_->PrepareAsync$Method$(context.get(),request,cq); };\n"
+		  "    auto pImpl = xlib::xrpc::RpcClientCallerImpl<$Response$>::TPtr(new xlib::xrpc::RpcClientCallerImpl<$Response$>());\n"
+		  "    return pImpl->InitDats(rpc_client_,prepare,context);\n}\n");
+}
+//end
 
 void PrintHeaderClientMethodInterfaces(grpc_generator::Printer* printer,
                                        const grpc_generator::Method* method,
@@ -1418,6 +1439,7 @@ void PrintHeaderService(grpc_generator::Printer* printer,
   for (int i = 0; i < service->method_count(); ++i) {
     PrintHeaderServerMethodSync(printer, service->method(i).get(), vars);
   }
+  printer->Print("std::vector<std::unique_ptr<xlib::xrpc::IRPCMethodHandle>> method_handles;\n");
   printer->Outdent();
   printer->Print("};\n");
 
@@ -1549,6 +1571,27 @@ void PrintHeaderService(grpc_generator::Printer* printer,
 
   printer->Outdent();
   printer->Print("};\n");
+  //add for xgrpc
+  printer->Print(
+      "class RPCClientStubImpl {\n"
+      " public:\n");
+  printer->Indent();
+  printer->Print(*vars,"RPCClientStubImpl(std::unique_ptr<$Service$::Stub> stub) : stub_(std::move(stub)) {}\n"
+     "void AttachToClient(xlib::xrpc::RPCClient* rpc_client) { rpc_client_ = rpc_client; }\n");
+  printer->Print("private:\n");
+  printer->Indent();
+  printer->Print(*vars,"std::unique_ptr<$Service$::Stub> stub_;\n"
+    "    xlib::xrpc::RPCClient* rpc_client_;\n");
+  printer->Print("public:\n");
+  printer->Indent();
+  for (int i = 0; i < service->method_count(); ++i) {
+    printer->Print(service->method(i)->GetLeadingComments("//").c_str());
+    PrintHeaderClientStubImplMethodInterfaces(printer, service->method(i).get(), vars);
+    printer->Print(service->method(i)->GetTrailingComments("//").c_str());
+  }
+  printer->Outdent();
+  printer->Print("};\n");
+  //end
   printer->Print(service->GetTrailingComments("//").c_str());
 }
 
@@ -2035,7 +2078,8 @@ void PrintSourceService(grpc_generator::Printer* printer,
           "           const $Request$* req,\n"
           "           $Response$* resp) {\n"
           "             return service->$Method$(ctx, req, resp);\n"
-          "           }, this)));\n");
+          "           }, this)));\n"
+	  "    method_handles.emplace_back( new xlib::xrpc::RPCMethodHandle<$Request$,$Response$>($Idx$,std::bind(&Service::$Method$,this,std::placeholders::_1,std::placeholders::_2,std::placeholders::_3) ));\n");
     } else if (ClientOnlyStreaming(method.get())) {
       printer->Print(
           *vars,
